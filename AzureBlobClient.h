@@ -28,6 +28,8 @@ class AzureBlobClient {
 
    /// Create a container that stores all blobs
    void createContainer(std::string containerName);
+
+   void setContainer(std::string containerName) { this->containerName = std::move(containerName); }
    
    /// Delete the container that stored all blobs
    void deleteContainer();
@@ -39,7 +41,7 @@ class AzureBlobClient {
    std::stringstream downloadStringStream(const std::string& blobName);
 
    /// List all blobs in the container
-   std::vector<std::string> listBlobs();
+   std::vector<std::string> listBlobs(const std::string& prefix);
 };
 
 #endif

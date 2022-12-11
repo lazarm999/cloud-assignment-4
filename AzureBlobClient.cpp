@@ -58,14 +58,14 @@ std::stringstream AzureBlobClient::downloadStringStream(const std::string& blobN
    return result;
 }
 
-std::vector<std::string> AzureBlobClient::listBlobs()
+std::vector<std::string> AzureBlobClient::listBlobs(const std::string& prefix = "")
 // List all blobs in the container
 {
    std::vector<std::string> results;
    std::string continuationToken;
 
    do {
-      auto blobs = client.list_blobs_segmented(containerName, "/", continuationToken, "").get();
+      auto blobs = client.list_blobs_segmented(containerName, "", continuationToken, prefix).get();
       if (!blobs.success())
          throw std::runtime_error("Azure list blobs: " + formatError(blobs.error()));
       for (auto& blob : blobs.response().blobs)
