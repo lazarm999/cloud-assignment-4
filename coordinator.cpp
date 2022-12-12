@@ -1,60 +1,122 @@
-#include "AzureBlobClient.h"
+//#include "AzureBlobClient.h"
 #include "CurlEasyPtr.h"
+#include "utils.h"
+#include <chrono>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <cstring>
+#include <vector>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <poll.h>
+#include <unordered_map>
 
-void uploadDataToAzure() {
-   // TODO: add your azure credentials, get them via:
-   // az storage account list
-   // az account get-access-token --resource https://storage.azure.com/ -o tsv --query accessToken
-   static const std::string accountName = "cbdp3526stoyk";
-   static const std::string accountToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6Ii1LSTNROW5OUjdiUm9meG1lWm9YcWJIWkdldyIsImtpZCI6Ii1LSTNROW5OUjdiUm9meG1lWm9YcWJIWkdldyJ9.eyJhdWQiOiJodHRwczovL3N0b3JhZ2UuYXp1cmUuY29tLyIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzVkN2I0OWU5LTUwZDItNDBkYy1iYWIxLTE0YTJkOTAzNTQyYy8iLCJpYXQiOjE2NzA3NjMyMDgsIm5iZiI6MTY3MDc2MzIwOCwiZXhwIjoxNjcwNzY4MTc2LCJhY3IiOiIxIiwiYWlvIjoiQVZRQXEvOFRBQUFBT2d2bDc2cUdHSk5kUkUxT2U5SEpBTmVyMXRWZHNuZld3VHVDTmZpY1VBYm0zdjZZU3BlRjVVZEZ5M01SQWtTT3M3OVNGdFBKckc2cTA5ZzE5ZGRoeUl4Zk44Vmx0Nk5VTU9uQ2dGYTFqZVE9IiwiYW1yIjpbInB3ZCIsIm1mYSJdLCJhcHBpZCI6IjA0YjA3Nzk1LThkZGItNDYxYS1iYmVlLTAyZjllMWJmN2I0NiIsImFwcGlkYWNyIjoiMCIsImZhbWlseV9uYW1lIjoiU3RvamtvdmljIiwiZ2l2ZW5fbmFtZSI6IlVyb3MiLCJncm91cHMiOlsiMDhlZmQ5YjItN2ExMS00NjZmLWI5NTktMThiNmMzYzQzZjNiIiwiZDAxMmU3YzctYjBiYi00NGE0LTgzMjQtZTYwZDU3ZTg1OWEyIiwiNWYxNTdhZjAtNjIzOS00OTE1LTllYmEtNDQyMGFiMTI4OTBjIl0sImlwYWRkciI6IjE3Ni40LjI3LjE2MCIsIm5hbWUiOiJTdG9qa292aWMsIFVyb3MiLCJvaWQiOiI3OWNkYWVhOC03N2E4LTQ1NzctOWIyMS1kZjc0ZDBhZDFiZjAiLCJvbnByZW1fc2lkIjoiUy0xLTUtMjEtMTQ5OTI2MTcyNy01NTE3NjEwMi0zNTI5NTA5OTI5LTEwMzk4NjEiLCJwdWlkIjoiMTAwMzIwMDI1NjZCODE3QiIsInJoIjoiMC5BWFFBNlVsN1hkSlEzRUM2c1JTaTJRTlVMSUdtQnVUVTg2aENrTGJDc0NsSmV2RjBBTjguIiwic2NwIjoidXNlcl9pbXBlcnNvbmF0aW9uIiwic3ViIjoiN3YxdDBYb2RMbDhZZ1Zhc0JiM0MyYnhCUnozX2dYazJleWQtQ1BRb1V2MCIsInRpZCI6IjVkN2I0OWU5LTUwZDItNDBkYy1iYWIxLTE0YTJkOTAzNTQyYyIsInVuaXF1ZV9uYW1lIjoidXJvcy5zdG9qa292aWNAdHVtLmRlIiwidXBuIjoidXJvcy5zdG9qa292aWNAdHVtLmRlIiwidXRpIjoieEt5S2lSamJkVUtuV3FfQU1uVUZBQSIsInZlciI6IjEuMCJ9.HV-VbsXxfqt74KAPCcCj_1JRAEE-Xq-qugllTcyj1smFjykg9H5fvxl_N-iCf3H5b_rkncCRFqr4_1fQ4tzdnoqSmTjSl4qOs-1fU3wvlwUbytS7iFTqnlUxN1hWBbzGED3fnDXnhMhgkW36SXCjfTNJDhfZDP8jJoCyzDBdAGEJh2xpr_67ctYhJaU7FfGpSgvcj2Bxh9tZA9As7Exg34Piltm_BxdLFF7wQvhmCFamVaYtnhAvietqURY_Ccgr6DFGysUz3VDF0g9qqpUvn3YeY608ieKmti1m1j_iWNeuvCTyhwfr15iXudeH4tG_Lur_dFzClVcbTlMyt_GuzA";
-   auto blobClient = AzureBlobClient(accountName, accountToken);
+using namespace std::literals;
 
-   //std::cerr << "Creating Azure blob container" << std::endl;
-   blobClient.setContainer("cbdp-assignment4");
+const int LISTENQ = 128;
+const int TIMEOUT = 20000; // in ms
 
-   // auto curlSetup = CurlGlobalSetup();
-   // auto filelistUrl = std::string(argv[1]);
+struct client_descriptor {
+   std::string file;
+   std::chrono::steady_clock::time_point last_seen;
+   client_descriptor(std::string& fileUrl) {
+      file = fileUrl;
+      last_seen = std::chrono::steady_clock::now();
+   }
+   client_descriptor() {
+      file = "";
+      last_seen = std::chrono::steady_clock::now();
+   }
+};
 
-   // // Download the file list
-   // auto curl = CurlEasyPtr::easyInit();
-
-   // curl.setUrl(filelistUrl);
-   // auto fileList = curl.performToStringStream();
-
-   // std::cerr << "Uploading files" << std::endl;
-   // std::stringstream transformed;
-   // for (std::string file; std::getline(fileList, file, '\n');) {
-   //    curl.setUrl(file);
-   //    auto urlList = curl.performToStringStream();
-   //    auto offset = file.find_last_of('/')+1;
-   //    auto blobname = "data/" + file.substr(offset);
-   //    transformed << blobname << "\n";
-   //    blobClient.uploadStringStream(blobname, urlList);
-   // }
-
-   // blobClient.uploadStringStream("data/filelist.csv", transformed);
-
-   // std::cerr << "Uploading a blob" << std::endl;
-   // {
-   //    std::stringstream upload;
-   //    upload << "Hello World!" << std::endl;
-   //    blobClient.uploadStringStream("hello", upload);
-   // }
-
-   // std::cerr << "Downloading the file list again" << std::endl;
-   // auto downloaded = blobClient.downloadStringStream("data/filelist.csv");
-
-   auto files = blobClient.listBlobs("data/");
-
-   std::cerr << "Files:" << std::endl;
-   for (auto& file : files) {
-      std::cerr << file << std::endl;
+int OpenListenSd(const char* port) {
+   if (!port) return -1;
+   int listensd, optval = 1, rv;
+   addrinfo hints, *listp, *p;
+   memset(&hints, 0, sizeof(hints));
+   hints.ai_family = AF_UNSPEC;
+   hints.ai_socktype = SOCK_STREAM;
+   hints.ai_flags = AI_PASSIVE; //   | AI_ADDRCONFIG | AI_NUMERICSERV;
+   if ((rv = getaddrinfo(NULL, port, &hints, &listp)) != 0) {
+      std::cerr << "getaddrinfo error: " << gai_strerror(rv) << std::endl;
+      exit(1);
    }
 
-   //std::cerr << "Deleting the container" << std::endl;
-   //blobClient.deleteContainer();
+   for (p = listp; p != nullptr; p = p->ai_next) {
+      if ((listensd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) continue;
+      /* Eliminates "Address already in use" error from bind */
+      setsockopt(listensd, SOL_SOCKET, SO_REUSEADDR, &optval , sizeof(int));
+      if (bind(listensd, p->ai_addr, p->ai_addrlen) == 0) break; // success
+      close(listensd);
+   }
+   freeaddrinfo(listp);
+   if (!p) {
+      return -1;
+   }
+   if (listen(listensd, LISTENQ) < 0) {
+      close(listensd);
+      return -1;
+   }
+   return listensd;
+}
+
+long SendTask(int connsd, std::vector<std::string>& unassignedFiles, std::unordered_map<int, client_descriptor>& clients) {
+   auto fileUrl = unassignedFiles.back();
+   clients[connsd].file = fileUrl;
+
+   ssize_t sentlen;
+   auto urllen = fileUrl.size();
+   if ((sentlen = send(connsd, fileUrl.data(), urllen, 0)) <= 0) {
+      //std::cout << "Here " << sentlen << std::endl;
+      clients.erase(connsd);
+      close(connsd);
+      return -1l;
+   }
+
+   unassignedFiles.pop_back();
+   clients[connsd].last_seen = std::chrono::steady_clock::now();
+   return sentlen;
+}
+
+int RecvResult(int connsd, std::vector<std::string>& unassignedFiles, std::unordered_map<int, client_descriptor>& clients) {
+   int result;
+   if (recv(connsd, &result, sizeof(result), 0) < 0) {
+      auto fileUrl = clients[connsd].file;
+      clients.erase(connsd);
+      unassignedFiles.push_back(fileUrl);
+      close(connsd);
+      return -1;
+   }
+   clients[connsd] = {}; // resets the info structure
+
+   return result;
+}
+
+int AddToPoll(pollfd* psds, int newsd, int& sd_count, int sd_size)
+{
+    if (sd_count == sd_size) {
+        return 0;
+    }
+
+    memset(&psds[sd_count], 0, sizeof(pollfd));
+    psds[sd_count].fd = newsd;
+    psds[sd_count].events = POLLIN | POLLOUT; // Check ready-to-read and ready-to-write
+
+    sd_count++;
+    return 1;
+}
+
+// Remove an index from the set
+void DelFromPollsds(pollfd* psds, int i, int& sd_count)
+{
+    // Copy the one from the end over this one
+    psds[i] = psds[sd_count-1];
+    sd_count--;
 }
 
 /// Leader process that coordinates workers. Workers connect on the specified port
@@ -67,7 +129,92 @@ int main(int argc, char* argv[]) {
       return 1;
    }
 
-   uploadDataToAzure();
+   auto curlSetup = CurlGlobalSetup();
+
+   auto listUrl = std::string(argv[1]);
+
+   // Download the file list
+   auto fileList = DownloadStreamFromAzure("data/filelist.csv");
+   // std::cout << fileList.str();
+   // return 0;
+
+   auto remainingFileNo = 0u;
+   std::vector<std::string> unassignedFiles;
+   size_t total = 0;
+   //int n = 40;
+   // Iterate over all files and mark them as unassigned
+   for (std::string url; std::getline(fileList, url, '\n');) {
+      unassignedFiles.push_back(url);
+      remainingFileNo++;
+      //if (!--n) break;
+   }
+
+   pollfd* psds = new pollfd[LISTENQ + 1];
+   int listensd = OpenListenSd(argv[2]);
+
+   //std::cout << unassignedFiles.front() << "\t" << unassignedFiles.back() << "\t" << remainingFileNo << std::endl;
+
+   psds[0].fd = listensd; psds[0].events = POLLIN;
+   auto psdlen = 1;
+
+   std::unordered_map<int, client_descriptor> clients;
+
+   while (remainingFileNo > 0) {
+      int poll_count = poll(psds, psdlen, 1000); 
+      if (poll_count == -1) {
+         perror("poll");
+         exit(1);
+      }
+      for (int i = 0; i < psdlen; i++) { // for each polled socket
+         if (psds[i].fd == listensd) {
+            if ((psds[i].revents & POLLIN) && psdlen <= LISTENQ+1) {
+               sockaddr_storage clientaddr;
+               socklen_t clientlen;    
+               // accept connection with worker
+               int connsd = accept(listensd, (sockaddr*)&clientaddr, &clientlen);
+               // add socket descriptor to polling list
+               AddToPoll(psds, connsd, psdlen, LISTENQ+1);
+               clients[connsd] = {};
+            }
+        }
+        else {
+            auto connsd = psds[i].fd;
+            auto now = std::chrono::steady_clock::now();
+            if (psds[i].revents & POLLIN) {
+               auto result = RecvResult(connsd, unassignedFiles, clients);
+               if (result != -1) {
+                  total += result;
+                  remainingFileNo--;
+                  //std::cout << "Total: " << total << "\t Remaining: " << remainingFileNo << std::endl;
+                  if (!remainingFileNo) break;
+               }
+            }
+            else if ((psds[i].revents & POLLHUP) || std::chrono::duration_cast<std::chrono::milliseconds>(now - clients[connsd].last_seen).count() > TIMEOUT) {
+               //std::cout << "Here" << (psds[i].revents) << std::endl;
+               auto fileUrl = clients[connsd].file;
+               clients.erase(connsd);
+               if (!fileUrl.empty()) unassignedFiles.push_back(fileUrl);
+               DelFromPollsds(psds, i, psdlen);
+               close(connsd);
+               i--;
+               continue;
+            }
+            else if ((psds[i].revents & POLLOUT) && clients[connsd].file.empty() && !unassignedFiles.empty()) {
+               //std::cout << "File: " << remainingFileNo << ", unassigned len: " << unassignedFiles.size() << std::endl;
+               if (SendTask(connsd, unassignedFiles, clients) == -1) {
+                  DelFromPollsds(psds, i, psdlen);
+               }
+            }
+        }
+      }
+   }
+
+   for (int i=0; i<psdlen; i++) close(psds[i].fd);
+
+   std::cout << total << std::endl;
+   
+   //close(listensd);
+   delete[] psds;
 
    return 0;
 }
