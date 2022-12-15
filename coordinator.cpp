@@ -4,6 +4,7 @@
 #include <chrono>
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <string>
 #include <cstring>
 #include <vector>
@@ -15,6 +16,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <unordered_map>
+#include <algorithm>
 
 using namespace std::literals;
 
@@ -22,14 +24,14 @@ const int LISTENQ = 128;
 const int TIMEOUT = 20000; // in ms
 
 struct client_descriptor {
-   std::string file;
+   Task task;
    std::chrono::steady_clock::time_point last_seen;
-   client_descriptor(std::string& fileUrl) {
-      file = fileUrl;
+   client_descriptor(Task& t) {
+      task = t;
       last_seen = std::chrono::steady_clock::now();
    }
    client_descriptor() {
-      file = "";
+      task.task_id = 0;
       last_seen = std::chrono::steady_clock::now();
    }
 };
@@ -65,30 +67,29 @@ int OpenListenSd(const char* port) {
    return listensd;
 }
 
-long SendTask(int connsd, std::vector<std::string>& unassignedFiles, std::unordered_map<int, client_descriptor>& clients) {
-   auto fileUrl = unassignedFiles.back();
-   clients[connsd].file = fileUrl;
+long SendTask(int connsd, std::vector<Task>& unassignedTasks, std::unordered_map<int, client_descriptor>& clients) {
+   auto task = unassignedTasks.back();
+   clients[connsd].task = task;
 
    ssize_t sentlen;
-   auto urllen = fileUrl.size();
-   if ((sentlen = send(connsd, fileUrl.data(), urllen, 0)) <= 0) {
+   if ((sentlen = send(connsd, &task, sizeof(task), 0)) <= 0) {
       //std::cout << "Here " << sentlen << std::endl;
       clients.erase(connsd);
       close(connsd);
       return -1l;
    }
 
-   unassignedFiles.pop_back();
+   unassignedTasks.pop_back();
    clients[connsd].last_seen = std::chrono::steady_clock::now();
    return sentlen;
 }
 
-int RecvResult(int connsd, std::vector<std::string>& unassignedFiles, std::unordered_map<int, client_descriptor>& clients) {
+int RecvResult(int connsd, std::vector<Task>& unassignedTasks, std::unordered_map<int, client_descriptor>& clients) {
    int result;
    if (recv(connsd, &result, sizeof(result), 0) < 0) {
-      auto fileUrl = clients[connsd].file;
+      auto task = clients[connsd].task;
       clients.erase(connsd);
-      unassignedFiles.push_back(fileUrl);
+      unassignedTasks.push_back(task);
       close(connsd);
       return -1;
    }
@@ -111,6 +112,56 @@ int AddToPoll(pollfd* psds, int newsd, int& sd_count, int sd_size)
     return 1;
 }
 
+void AggregateLocal(std::vector<DCPair>& top25) {
+   // for each subtotal file
+   std::ifstream in;
+   for (auto i=0u; i<MAX_PARTITIONS; ++i) {
+      std::string filename = "./data/aggr/bucket" + std::to_string(i) + ".total.csv";
+      in.open(filename);
+      if (!in) std::cout << "open() failed!\n";
+      for (std::string row; std::getline(in, row, '\n');) {
+         std::string domain;
+         unsigned count;
+         auto rowStream = std::stringstream(row);
+         std::getline(rowStream, domain, ',');
+         rowStream >> count;
+         top25.push_back({domain, 0ul, count});
+      }
+      in.close();
+   }
+   std::sort(top25.begin(), top25.end(), [](DCPair a, DCPair b) {
+      return a.count > b.count;
+   });
+   if (top25.size() > 25) top25.resize(25);
+   // for each domain, count
+   // add pair to vector of strings
+   // sort by count
+   // resize to top25
+}
+void Aggregate(std::vector<DCPair>& top25) {
+   // for each subtotal file
+   for (auto i=0u; i<MAX_PARTITIONS; ++i) {
+      std::string filename = "./data/aggr/bucket" + std::to_string(i) + ".total.csv";
+      auto in = DownloadStreamFromAzure(filename);
+      for (std::string row; std::getline(in, row, '\n');) {
+         std::string domain;
+         unsigned count;
+         auto rowStream = std::stringstream(row);
+         std::getline(rowStream, domain, ',');
+         rowStream >> count;
+         top25.push_back({domain, 0ul, count});
+      }
+   }
+   std::sort(top25.begin(), top25.end(), [](DCPair a, DCPair b) {
+      return a.count > b.count;
+   });
+   if (top25.size() > 25) top25.resize(25);
+   // for each domain, count
+   // add pair to vector of strings
+   // sort by count
+   // resize to top25
+}
+
 // Remove an index from the set
 void DelFromPollsds(pollfd* psds, int i, int& sd_count)
 {
@@ -129,89 +180,107 @@ int main(int argc, char* argv[]) {
       return 1;
    }
 
-   auto curlSetup = CurlGlobalSetup();
+   CurlGlobalSetup curlSetup();
 
    auto listUrl = std::string(argv[1]);
 
    // Download the file list
-   auto fileList = DownloadStreamFromAzure("data/filelist.csv");
-   // std::cout << fileList.str();
+   //std::cout << fileList.str();
    // return 0;
-
-   auto remainingFileNo = 0u;
-   std::vector<std::string> unassignedFiles;
-   size_t total = 0;
-   //int n = 40;
-   // Iterate over all files and mark them as unassigned
-   for (std::string url; std::getline(fileList, url, '\n');) {
-      unassignedFiles.push_back(url);
-      remainingFileNo++;
-      //if (!--n) break;
-   }
 
    pollfd* psds = new pollfd[LISTENQ + 1];
    int listensd = OpenListenSd(argv[2]);
-
-   //std::cout << unassignedFiles.front() << "\t" << unassignedFiles.back() << "\t" << remainingFileNo << std::endl;
 
    psds[0].fd = listensd; psds[0].events = POLLIN;
    auto psdlen = 1;
 
    std::unordered_map<int, client_descriptor> clients;
 
-   while (remainingFileNo > 0) {
-      int poll_count = poll(psds, psdlen, 1000); 
-      if (poll_count == -1) {
-         perror("poll");
-         exit(1);
+   for (int taskId=1; taskId<=2; ++taskId) {
+      auto remainingTasks = 0u;
+      std::vector<Task> unassignedTasks;
+      // Iterate over all files and mark them as unassigned
+      if (taskId == 1) {
+         auto fileList = DownloadStreamWithCUrl(listUrl);
+         for (std::string url; std::getline(fileList, url, '\n');) {
+            Task task;
+            task.task_id = 1;
+            strncpy(task.task_info.blobname, url.data(), TASK_INFO_SIZE);
+            unassignedTasks.push_back(task);
+            remainingTasks++;
+            //if (!--n) break;
+         }
+         // std::cout << unassignedTasks.front().task_info.blobname << "\t" << unassignedTasks.back().task_info.blobname << "\t" << remainingTasks << std::endl;
       }
-      for (int i = 0; i < psdlen; i++) { // for each polled socket
-         if (psds[i].fd == listensd) {
-            if ((psds[i].revents & POLLIN) && psdlen <= LISTENQ+1) {
-               sockaddr_storage clientaddr;
-               socklen_t clientlen;    
-               // accept connection with worker
-               int connsd = accept(listensd, (sockaddr*)&clientaddr, &clientlen);
-               // add socket descriptor to polling list
-               AddToPoll(psds, connsd, psdlen, LISTENQ+1);
-               clients[connsd] = {};
-            }
-        }
-        else {
-            auto connsd = psds[i].fd;
-            auto now = std::chrono::steady_clock::now();
-            if (psds[i].revents & POLLIN) {
-               auto result = RecvResult(connsd, unassignedFiles, clients);
-               if (result != -1) {
-                  total += result;
-                  remainingFileNo--;
-                  //std::cout << "Total: " << total << "\t Remaining: " << remainingFileNo << std::endl;
-                  if (!remainingFileNo) break;
+      else {
+         for (auto i=0u; i<MAX_PARTITIONS; ++i) {
+            Task task;
+            task.task_id = 2;
+            task.task_info.bucketId = i;
+            unassignedTasks.push_back(task);
+         }
+         remainingTasks = MAX_PARTITIONS;
+      }
+      while (remainingTasks > 0) {
+         int poll_count = poll(psds, psdlen, 1000);
+         if (poll_count == -1) {
+            perror("poll");
+            exit(1);
+         }
+         else if (poll_count == 0) continue;
+         for (int i = 0; i < psdlen; i++) { // for each polled socket
+            if (psds[i].fd == listensd) {
+               if ((psds[i].revents & POLLIN) && psdlen <= LISTENQ+1) {
+                  sockaddr_storage clientaddr;
+                  socklen_t clientlen;    
+                  // accept connection with worker
+                  //std::cout << "Here!";
+                  int connsd = accept(listensd, (sockaddr*)&clientaddr, &clientlen);
+                  // add socket descriptor to polling list
+                  AddToPoll(psds, connsd, psdlen, LISTENQ+1);
+                  clients[connsd] = {};
                }
             }
-            else if ((psds[i].revents & POLLHUP) || std::chrono::duration_cast<std::chrono::milliseconds>(now - clients[connsd].last_seen).count() > TIMEOUT) {
-               //std::cout << "Here" << (psds[i].revents) << std::endl;
-               auto fileUrl = clients[connsd].file;
-               clients.erase(connsd);
-               if (!fileUrl.empty()) unassignedFiles.push_back(fileUrl);
-               DelFromPollsds(psds, i, psdlen);
-               close(connsd);
-               i--;
-               continue;
-            }
-            else if ((psds[i].revents & POLLOUT) && clients[connsd].file.empty() && !unassignedFiles.empty()) {
-               //std::cout << "File: " << remainingFileNo << ", unassigned len: " << unassignedFiles.size() << std::endl;
-               if (SendTask(connsd, unassignedFiles, clients) == -1) {
+            else {
+               auto connsd = psds[i].fd;
+               auto now = std::chrono::steady_clock::now();
+               if (psds[i].revents & POLLIN) {
+                  auto result = RecvResult(connsd, unassignedTasks, clients);
+                  if (result != -1) {
+                     remainingTasks--;
+                     // std::cout << "Total: " << total << "\t Remaining: " << remainingTasks << std::endl;
+                     if (!remainingTasks) break;
+                  }
+               }
+               else if ((psds[i].revents & POLLHUP) || std::chrono::duration_cast<std::chrono::milliseconds>(now - clients[connsd].last_seen).count() > TIMEOUT) {
+                  //std::cout << "Here" << (psds[i].revents) << std::endl;
+                  auto task = clients[connsd].task;
+                  clients.erase(connsd);
+                  if (!task.task_id) unassignedTasks.push_back(task);
                   DelFromPollsds(psds, i, psdlen);
+                  close(connsd);
+                  i--;
+                  continue;
+               }
+               else if ((psds[i].revents & POLLOUT) && !clients[connsd].task.task_id && !unassignedTasks.empty()) {
+                  // std::cout << "File: " << remainingTasks << ", unassigned len: " << unassignedTasks.size() << std::endl;
+                  if (SendTask(connsd, unassignedTasks, clients) == -1) {
+                     DelFromPollsds(psds, i, psdlen);
+                  }
                }
             }
-        }
+         }
       }
    }
 
    for (int i=0; i<psdlen; i++) close(psds[i].fd);
 
-   std::cout << total << std::endl;
+   std::vector<DCPair> top25;
+   Aggregate(top25);
+
+   for (auto& pair : top25) {
+      std::cout << pair.domain << "," << pair.count << "\n";
+   }
    
    //close(listensd);
    delete[] psds;

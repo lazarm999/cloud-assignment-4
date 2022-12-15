@@ -11,7 +11,7 @@ file_ext="${1##*.}"
 file_path="$(dirname "$(realpath "$1")")"
 
 # Split the csv into 100 equal chunks
-split --number=r/100 --numeric-suffixes "$file_base.$file_ext" "$file_base." --additional-suffix=".$file_ext"
+split --number=r/10 --numeric-suffixes "$file_base.$file_ext" "$file_base." --additional-suffix=".$file_ext"
 
 # And generate a curl compatible file list
 find "$file_path" -name "$(basename "$file_base.*.$file_ext")" > "$file_path/filelist.csv"

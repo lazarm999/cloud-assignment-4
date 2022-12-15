@@ -14,7 +14,7 @@ class AzureBlobClient {
    std::string containerName;
 
    /// Create the blob_client with the given credentials
-   static azure::storage_lite::blob_client createClient(const std::string& accountName, const std::string& accessToken);
+   static azure::storage_lite::blob_client createClient(const std::string& accountName, const std::string& accountKey);
 
    public:
    /// Constructor
@@ -22,7 +22,7 @@ class AzureBlobClient {
    ///               az storage account list
    /// @accessToken: An access token for azure. Get an access token via:
    ///               az account get-access-token --resource https://storage.azure.com/ -o tsv --query accessToken
-   AzureBlobClient(const std::string& accountName, const std::string& accessToken);
+   AzureBlobClient(const std::string& accountName, const std::string& accountKey);
    AzureBlobClient(const AzureBlobClient&) = delete;
    AzureBlobClient& operator=(const AzureBlobClient&) = delete;
 
