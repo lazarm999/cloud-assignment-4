@@ -10,7 +10,7 @@ azure::storage_lite::blob_client AzureBlobClient::createClient(const std::string
 // Create a container that stores all blobs
 {
    using namespace azure::storage_lite;
-   std::shared_ptr<storage_credential> cred = std::make_shared<token_credential>(accessToken);
+   std::shared_ptr<storage_credential> cred = std::make_shared<shared_key_credential>(accountName, accessToken);
    std::shared_ptr<storage_account> account = std::make_shared<storage_account>(accountName, std::move(cred), /* use_https */ true);
 
    return {std::move(account), 16};
