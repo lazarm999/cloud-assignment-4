@@ -1,4 +1,4 @@
-//#include "AzureBlobClient.h"
+#include "AzureBlobClient.h"
 #include "CurlEasyPtr.h"
 #include "utils.h"
 #include <chrono>
@@ -21,7 +21,7 @@
 using namespace std::literals;
 
 const int LISTENQ = 128;
-const int TIMEOUT = 20000; // in ms
+const int TIMEOUT = 600000; // in ms
 
 struct client_descriptor {
    Task task;
@@ -123,7 +123,7 @@ void AggregateLocal(std::vector<DCPair>& top25) {
          std::string domain;
          unsigned count;
          auto rowStream = std::stringstream(row);
-         std::getline(rowStream, domain, ',');
+         std::getline(rowStream, domain, '\t');
          rowStream >> count;
          top25.push_back({domain, 0ul, count});
       }
@@ -138,16 +138,17 @@ void AggregateLocal(std::vector<DCPair>& top25) {
    // sort by count
    // resize to top25
 }
+
 void Aggregate(std::vector<DCPair>& top25) {
    // for each subtotal file
    for (auto i=0u; i<MAX_PARTITIONS; ++i) {
-      std::string filename = "./data/aggr/bucket" + std::to_string(i) + ".total.csv";
-      auto in = DownloadStreamFromAzure(filename);
+      std::string blobname = "aggr/bucket" + std::to_string(i) + "/total.csv";
+      auto in = DownloadStreamFromAzure(blobname);
       for (std::string row; std::getline(in, row, '\n');) {
          std::string domain;
          unsigned count;
          auto rowStream = std::stringstream(row);
-         std::getline(rowStream, domain, ',');
+         std::getline(rowStream, domain, '\t');
          rowStream >> count;
          top25.push_back({domain, 0ul, count});
       }
@@ -180,9 +181,22 @@ int main(int argc, char* argv[]) {
       return 1;
    }
 
-   CurlGlobalSetup curlSetup();
+   // std::string blobname = "aggr/bucket";
+   // auto& client = *AzureBlobClient::Instance();
+   // auto blobs = client.listBlobs(blobname);
+   // std::cout << blobs.size() << std::endl;
+   // for (auto& blob : blobs) {
+   //    client.deleteBlob(blob);
+   // }
+   // exit(0);
+   
+   // x % 30u != static_cast<unsigned long>(hash)
+   // auto ss = DownloadStreamFromAzure(blobname);
+   // std::cout << ss.rdbuf();
 
-   auto listUrl = std::string(argv[1]);
+   CurlGlobalSetup curlSetup;
+
+   auto listUrl = std::string("https://db.in.tum.de/teaching/ws2223/clouddataprocessing/data/filelist.csv");//std::string(argv[1]);
 
    // Download the file list
    //std::cout << fileList.str();
@@ -201,7 +215,7 @@ int main(int argc, char* argv[]) {
       std::vector<Task> unassignedTasks;
       // Iterate over all files and mark them as unassigned
       if (taskId == 1) {
-         auto fileList = DownloadStreamWithCUrl(listUrl);
+         auto fileList = DownloadStreamFromAzure("data/filelist.csv"); // DownloadStreamWithCUrl(listUrl);// 
          for (std::string url; std::getline(fileList, url, '\n');) {
             Task task;
             task.task_id = 1;
@@ -248,7 +262,7 @@ int main(int argc, char* argv[]) {
                   auto result = RecvResult(connsd, unassignedTasks, clients);
                   if (result != -1) {
                      remainingTasks--;
-                     // std::cout << "Total: " << total << "\t Remaining: " << remainingTasks << std::endl;
+                     std::cout << "TaskId: " << taskId << "\tRemaining: " << remainingTasks << std::endl;
                      if (!remainingTasks) break;
                   }
                }
@@ -278,8 +292,9 @@ int main(int argc, char* argv[]) {
    std::vector<DCPair> top25;
    Aggregate(top25);
 
+   std::cout << "Top 25 domains:\n";
    for (auto& pair : top25) {
-      std::cout << pair.domain << "," << pair.count << "\n";
+      std::cout << pair.domain << "\t" << pair.count << "\n";
    }
    
    //close(listensd);

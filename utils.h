@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 
-const unsigned MAX_PARTITIONS = 20;
+const unsigned MAX_PARTITIONS = 4;
 const size_t TASK_INFO_SIZE = 128;
 
 union TaskInfo {

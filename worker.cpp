@@ -19,7 +19,7 @@
 #include <vector>
 #include <functional>
 
-const unsigned BUF_SIZE = 512;
+// const unsigned BUF_SIZE = 512;
 
 int ConnectToServer(const char* host, const char* port) {
    // returns socket descriptor connected with process at (host, port) or -1 in case of failure
@@ -51,8 +51,9 @@ int ConnectToServer(const char* host, const char* port) {
 std::vector<DCPair> CountDomains(std::stringstream& csvData) {
 
    std::unordered_map<std::string, unsigned> domainCount;
-   const std::regex regex("^https?://((:?[a-z0-9](:?[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9])/.*");
-   
+   //const std::regex regex("^https?://((:?[a-z0-9](:?[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9])/.*");
+   const std::regex regex("://([^/]+)(:?/.*)?$");
+
    for (std::string row; std::getline(csvData, row, '\n');) {
       auto rowStream = std::stringstream(std::move(row));
       // Check the URL in the second column
@@ -63,20 +64,27 @@ std::vector<DCPair> CountDomains(std::stringstream& csvData) {
             // Check if URL is "google.ru"
             std::smatch match;
             std::string url(column);
-            if (std::regex_search(url, match, regex) && match.size() > 1) {
-               auto domain = std::move(match[1].str());
-               if (domainCount.find(domain) == domainCount.end()) {
-                  domainCount[domain] = 1;
-               }
-               else domainCount[domain]++;
+            auto domain = (std::regex_search(url, match, regex) && match.size() > 1) ? std::move(match[1].str()) : std::move(url);
+            if (domainCount.find(domain) == domainCount.end()) {
+               domainCount[domain] = 1;
             }
+            else domainCount[domain]++;
+            
+            // if (std::regex_search(url, match, regex) && match.size() > 1) {
+            //    auto domain = std::move(match[1].str());
+            //    if (domainCount.find(domain) == domainCount.end()) {
+            //       domainCount[domain] = 1;
+            //    }
+            //    else domainCount[domain]++;
+            // }
             break;
          }
       }
    }
    std::vector<DCPair> dcVec;
+   auto hash = std::hash<std::string>{};
    for (auto& pair : domainCount) {
-      dcVec.push_back({pair.first, std::hash<std::string>{}(pair.first), pair.second});
+      dcVec.push_back({pair.first, hash(pair.first), pair.second});
    }
    // std::stringstream outstr;
    // for (auto& entry : dcVec) {
@@ -85,7 +93,7 @@ std::vector<DCPair> CountDomains(std::stringstream& csvData) {
    return dcVec;
 }
 
-void WriteCountsLocal(std::string& fileno, std::vector<DCPair>& domainCount, int maxPartitions) {
+void WriteCountsLocal(std::string& fileno, std::vector<DCPair>& domainCount, unsigned maxPartitions) {
    std::unordered_map<unsigned,std::ofstream> outstreams;
    for (auto& entry : domainCount) {
       auto hash = static_cast<unsigned>(entry.hash % maxPartitions);
@@ -94,7 +102,7 @@ void WriteCountsLocal(std::string& fileno, std::vector<DCPair>& domainCount, int
          outstreams[hash] = std::ofstream(filename);
          if (!outstreams[hash]) {std::cout << "File failed!";}
       }
-      outstreams[hash] << entry.domain << "," << entry.count << "\n";
+      outstreams[hash] << entry.domain << "\t" << entry.count << "\n";
    }
    for (auto& pair : outstreams) {
       pair.second.close();
@@ -109,23 +117,29 @@ std::string ExtractNumberFromBlobname(std::string& filename) {
    return match[1].str();
 }
 
-void WriteCounts(std::string& fileno, std::vector<DCPair>& domainCount, int maxPartitions) {
-   std::sort(domainCount.begin(), domainCount.end(), [](DCPair a, DCPair b) {
-      return a.hash < b.hash;
+void WriteCounts(std::string& fileno, std::vector<DCPair>& domainCount, unsigned maxPartitions) {
+   std::sort(domainCount.begin(), domainCount.end(), [maxPartitions](const DCPair& a, const DCPair& b) {
+      return a.hash % maxPartitions < b.hash % maxPartitions;
    });
    std::stringstream uploadStream;
-   int hash = -1;
+   unsigned hash = maxPartitions;
    for (auto& entry : domainCount) {
-      if (static_cast<int>(entry.hash % maxPartitions) != hash) {
-         if (hash > -1) {
-            auto blobname = "aggr/bucket" + std::to_string(hash % maxPartitions) + "/" + fileno + ".csv"; 
+      if (entry.hash % maxPartitions != static_cast<unsigned long>(hash)) {
+         if (hash < maxPartitions) {
+            auto blobname = "aggr/bucket" + std::to_string(hash) + "/" + fileno + ".csv";
+            //std::cout << uploadStream.rdbuf() << std::endl;
             UploadStreamToAzure(blobname, uploadStream);
             uploadStream.str("");
             uploadStream.clear();
          }
-         hash = static_cast<int>(entry.hash % maxPartitions);
+         hash = static_cast<unsigned>(entry.hash % maxPartitions);
       }
-      uploadStream << entry.domain << "," << entry.count << "\n";
+      uploadStream << entry.domain << "\t" << entry.count << "\n";
+   }
+   if (hash < maxPartitions) {
+      auto blobname = "aggr/bucket" + std::to_string(hash) + "/" + fileno + ".csv";
+      //std::cout << uploadStream.rdbuf() << std::endl;
+      UploadStreamToAzure(blobname, uploadStream);
    }
 }
 
@@ -133,8 +147,8 @@ void UpdateCounts(std::map<std::string, unsigned>& counts, std::stringstream& cs
    for (std::string row; std::getline(csvData, row, '\n');) {
       std::stringstream rowAsStream(row);
       std::string domain;
-      unsigned count;
-      std::getline(rowAsStream, domain, ',');
+      unsigned count=0;
+      std::getline(rowAsStream, domain, '\t');
       rowAsStream >> count;
       if (counts.find(domain) == counts.end()) {
          counts[domain] = count;
@@ -146,7 +160,7 @@ void UpdateCounts(std::map<std::string, unsigned>& counts, std::stringstream& cs
 void AggregateCounts(int bucketId) {
    // list all files with given prefix
    std::map<std::string, unsigned> counts;
-   auto blobnamePrefix = "./data/bucket" + std::to_string(bucketId);
+   auto blobnamePrefix = "aggr/bucket" + std::to_string(bucketId);
    auto blobs = ListAzureBlobs(blobnamePrefix);
    for (auto& blob : blobs) {
       auto stream = DownloadStreamFromAzure(blob);
@@ -156,13 +170,13 @@ void AggregateCounts(int bucketId) {
    for (auto& pair : counts) {
       countAsVector.push_back({pair.first, 0, pair.second});
    }
-   std::sort(countAsVector.begin(), countAsVector.end(), [](DCPair a, DCPair b) {
+   std::sort(countAsVector.begin(), countAsVector.end(), [](const DCPair& a, const DCPair& b) {
       return a.count > b.count;
    });
    auto limit = countAsVector.size() < 25 ? countAsVector.size() : 25;
    std::stringstream outstream;
    for (auto i=0u; i<limit; ++i) {
-      outstream << countAsVector[i].domain << "," << countAsVector[i].count << "\n";
+      outstream << countAsVector[i].domain << "\t" << countAsVector[i].count << "\n";
    }
    auto outBlob = blobnamePrefix + "/total.csv";
    UploadStreamToAzure(outBlob, outstream);
@@ -172,15 +186,16 @@ void AggregateCounts(int bucketId) {
 
 void AggregateCountsLocal(int bucketId) {
    // list all files with given prefix
-   static const int PARTITION_NUM = 10;
+   static const int PARTITION_NUM = 100;
 
    std::map<std::string, unsigned> counts;
    auto blobnamePrefix = "./data/aggr/bucket" + std::to_string(bucketId);
    std::ifstream in;
    for (int i=0; i<PARTITION_NUM; ++i) {
-      std::string filename = blobnamePrefix + ".0" + std::to_string(i) + ".csv";
+      std::string filename = blobnamePrefix + (i < 10 ? ".0" : ".") + std::to_string(i) + ".csv";
       in.open(filename);
       if (!in) {
+         std::cerr << "open() failed!";
          in.close();
          continue;
       }
@@ -193,33 +208,36 @@ void AggregateCountsLocal(int bucketId) {
    for (auto& pair : counts) {
       countAsVector.push_back({pair.first, 0, pair.second});
    }
-   std::sort(countAsVector.begin(), countAsVector.end(), [](DCPair a, DCPair b) {
+   std::sort(countAsVector.begin(), countAsVector.end(), [](const DCPair& a, const DCPair& b) {
       return a.count > b.count;
    });
    auto limit = countAsVector.size() < 25 ? countAsVector.size() : 25;
    std::ofstream outstream(blobnamePrefix + ".total.csv");
    if (!outstream) return;
    for (auto i=0u; i<limit; ++i) {
-      outstream << countAsVector[i].domain << "," << countAsVector[i].count << "\n";
+      outstream << countAsVector[i].domain << "\t" << countAsVector[i].count << "\n";
    }
    // for each file update counts
    // write final result to data/totals/bucket{bucketId}.csv
 }
+
 /// Worker process that receives a list of URLs and reports the result
 /// Example:
 ///    ./worker localhost 4242
 /// The worker then contacts the leader process on "localhost" port "4242" for work
 
 int main(int argc, char* argv[]) {
-   // std::string filename = "../data/clickbench.00.csv";
+   // std::string filename = "../data/test.csv";
    // std::ifstream in(filename);
    // if (!in) exit(1);
    // std::stringstream ss;
    // ss << in.rdbuf();
    // auto vec = CountDomains(ss);
-   // auto fileNo = GetFileNo(filename);
-   // if (fileNo.empty()) exit(1);
-   // WriteCountsLocal(fileNo, vec, MAX_PARTITIONS);
+   // for (auto& elem : vec) {
+   //    std::cout << elem.count << "\t" << elem.domain << "\n";
+   // }
+   // // if (fileNo.empty()) exit(1);
+   // // WriteCountsLocal(fileNo, vec, MAX_PARTITIONS);
    // exit(0);
 
 
@@ -227,7 +245,6 @@ int main(int argc, char* argv[]) {
       std::cerr << "Usage: " << argv[0] << " <host> <port>" << std::endl;
       return 1;
    }
-
    // TODO:
    //    1. connect to coordinator specified by host and port
    //       getaddrinfo(), connect(), see: https://beej.us/guide/bgnet/html/#system-calls-or-bust
@@ -252,13 +269,13 @@ int main(int argc, char* argv[]) {
 
    auto pid = getpid();
    
-   CurlGlobalSetup curlSetup();
+   CurlGlobalSetup curlSetup;
 
    long msglen;
    while ((msglen = recv(clientsd, &task, sizeof(task), 0)) > 0) { // while not EOF(0) or error(-1)
       if (task.task_id == 1) {
          auto taskInfo = std::string(task.task_info.blobname);
-         auto ss = DownloadStreamWithCUrl(taskInfo);
+         auto ss = DownloadStreamFromAzure(taskInfo);
          auto vec = CountDomains(ss);
          auto fileNo = ExtractNumberFromBlobname(taskInfo);
          if (fileNo.empty()) break;
