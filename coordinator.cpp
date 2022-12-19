@@ -112,11 +112,19 @@ int AddToPoll(pollfd* psds, int newsd, int& sd_count, int sd_size)
     return 1;
 }
 
-void AggregateLocal(std::vector<DCPair>& top25) {
+// Remove an index from the set
+void DelFromPollsds(pollfd* psds, int i, int& sd_count)
+{
+    // Copy the one from the end over this one
+    psds[i] = psds[sd_count-1];
+    sd_count--;
+}
+
+void AggregateLocal(std::vector<DCPair>& top25, unsigned bucketCnt) {
    // for each subtotal file
    std::ifstream in;
-   for (auto i=0u; i<MAX_PARTITIONS; ++i) {
-      std::string filename = "./data/aggr/bucket" + std::to_string(i) + ".total.csv";
+   for (auto i=0u; i<bucketCnt; ++i) {
+      std::string filename = "./data/aggr/bucket" + std::to_string(i) + ".top25.csv";
       in.open(filename);
       if (!in) std::cout << "open() failed!\n";
       for (std::string row; std::getline(in, row, '\n');) {
@@ -139,10 +147,10 @@ void AggregateLocal(std::vector<DCPair>& top25) {
    // resize to top25
 }
 
-void Aggregate(std::vector<DCPair>& top25) {
+void Aggregate(std::vector<DCPair>& top25, unsigned bucketCount) {
    // for each subtotal file
-   for (auto i=0u; i<MAX_PARTITIONS; ++i) {
-      std::string blobname = "aggr/bucket" + std::to_string(i) + "/total.csv";
+   for (auto i=0u; i<bucketCount; ++i) {
+      std::string blobname = "aggr/bucket" + std::to_string(i) + "/top25.csv";
       auto in = DownloadStreamFromAzure(blobname);
       for (std::string row; std::getline(in, row, '\n');) {
          std::string domain;
@@ -163,24 +171,24 @@ void Aggregate(std::vector<DCPair>& top25) {
    // resize to top25
 }
 
-// Remove an index from the set
-void DelFromPollsds(pollfd* psds, int i, int& sd_count)
-{
-    // Copy the one from the end over this one
-    psds[i] = psds[sd_count-1];
-    sd_count--;
-}
-
 /// Leader process that coordinates workers. Workers connect on the specified port
 /// and the coordinator distributes the work of the CSV file list.
 /// Example:
 ///    ./coordinator http://example.org/filelist.csv 4242
 int main(int argc, char* argv[]) {
    if (argc != 3) {
-      std::cerr << "Usage: " << argv[0] << " <URL to csv list> <listen port>" << std::endl;
+      std::cerr << "Usage: " << argv[0] << " <listen port> <bucketNo>" << std::endl;
       return 1;
    }
 
+   auto bucketCountL = std::strtoul(argv[2], nullptr, 10);
+   if (bucketCountL == 0 || bucketCountL > UINT_MAX) {
+      std::cerr << "Usage: " << argv[0] << " <listen port> <bucketNo>" << std::endl;
+      return 1;
+   }
+   auto bucketCount = static_cast<unsigned>(bucketCountL);
+   // std::cout << bucketCount << std::endl;
+   
    // std::string blobname = "aggr/bucket";
    // auto& client = *AzureBlobClient::Instance();
    // auto blobs = client.listBlobs(blobname);
@@ -203,7 +211,7 @@ int main(int argc, char* argv[]) {
    // return 0;
 
    pollfd* psds = new pollfd[LISTENQ + 1];
-   int listensd = OpenListenSd(argv[2]);
+   int listensd = OpenListenSd(argv[1]);
 
    psds[0].fd = listensd; psds[0].events = POLLIN;
    auto psdlen = 1;
@@ -219,6 +227,7 @@ int main(int argc, char* argv[]) {
          for (std::string url; std::getline(fileList, url, '\n');) {
             Task task;
             task.task_id = 1;
+            task.bucket_cnt = bucketCount;
             strncpy(task.task_info.blobname, url.data(), TASK_INFO_SIZE);
             unassignedTasks.push_back(task);
             remainingTasks++;
@@ -227,13 +236,14 @@ int main(int argc, char* argv[]) {
          // std::cout << unassignedTasks.front().task_info.blobname << "\t" << unassignedTasks.back().task_info.blobname << "\t" << remainingTasks << std::endl;
       }
       else {
-         for (auto i=0u; i<MAX_PARTITIONS; ++i) {
+         for (auto i=0u; i<bucketCount; ++i) {
             Task task;
             task.task_id = 2;
+            task.bucket_cnt = bucketCount;
             task.task_info.bucketId = i;
             unassignedTasks.push_back(task);
          }
-         remainingTasks = MAX_PARTITIONS;
+         remainingTasks = bucketCount;
       }
       while (remainingTasks > 0) {
          int poll_count = poll(psds, psdlen, 1000);
@@ -290,7 +300,7 @@ int main(int argc, char* argv[]) {
    for (int i=0; i<psdlen; i++) close(psds[i].fd);
 
    std::vector<DCPair> top25;
-   Aggregate(top25);
+   Aggregate(top25, bucketCount);
 
    std::cout << "Top 25 domains:\n";
    for (auto& pair : top25) {

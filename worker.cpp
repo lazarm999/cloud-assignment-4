@@ -160,9 +160,10 @@ void UpdateCounts(std::map<std::string, unsigned>& counts, std::stringstream& cs
 void AggregateCounts(int bucketId) {
    // list all files with given prefix
    std::map<std::string, unsigned> counts;
-   auto blobnamePrefix = "aggr/bucket" + std::to_string(bucketId);
+   auto blobnamePrefix = "aggr/bucket" + std::to_string(bucketId) + "/";
    auto blobs = ListAzureBlobs(blobnamePrefix);
    for (auto& blob : blobs) {
+      if (blob.find("top25") != blob.npos) continue;
       auto stream = DownloadStreamFromAzure(blob);
       UpdateCounts(counts, stream);
    }
@@ -178,10 +179,10 @@ void AggregateCounts(int bucketId) {
    for (auto i=0u; i<limit; ++i) {
       outstream << countAsVector[i].domain << "\t" << countAsVector[i].count << "\n";
    }
-   auto outBlob = blobnamePrefix + "/total.csv";
+   auto outBlob = blobnamePrefix + "top25.csv";
    UploadStreamToAzure(outBlob, outstream);
    // for each file update counts
-   // write final result to data/totals/bucket{bucketId}.csv
+   // write final result to aggr/bucket{bucketId}/top25.csv
 }
 
 void AggregateCountsLocal(int bucketId) {
@@ -212,7 +213,7 @@ void AggregateCountsLocal(int bucketId) {
       return a.count > b.count;
    });
    auto limit = countAsVector.size() < 25 ? countAsVector.size() : 25;
-   std::ofstream outstream(blobnamePrefix + ".total.csv");
+   std::ofstream outstream(blobnamePrefix + ".top25.csv");
    if (!outstream) return;
    for (auto i=0u; i<limit; ++i) {
       outstream << countAsVector[i].domain << "\t" << countAsVector[i].count << "\n";
@@ -257,9 +258,8 @@ int main(int argc, char* argv[]) {
    //    5. repeat
 
    Task task;
-
+   int load1 = 0, load2 = 0;
    sleep(1);
-   //std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
    int clientsd = ConnectToServer(argv[1], argv[2]);
    if (clientsd < 0) {
@@ -279,7 +279,7 @@ int main(int argc, char* argv[]) {
          auto vec = CountDomains(ss);
          auto fileNo = ExtractNumberFromBlobname(taskInfo);
          if (fileNo.empty()) break;
-         WriteCounts(fileNo, vec, MAX_PARTITIONS);
+         WriteCounts(fileNo, vec, task.bucket_cnt);
       }
       else if (task.task_id == 2) {
          // second task
@@ -293,6 +293,8 @@ int main(int argc, char* argv[]) {
       // Send result
       int result = 1; // success
       send(clientsd, &result, sizeof(result), 0);
+      if (task.task_id == 1) load1++;
+      if (task.task_id == 2) load2++;
       //std::cout << fileUrl << std::endl;
       //std::cout << "Process " << pid << std::endl;
    }
@@ -304,6 +306,8 @@ int main(int argc, char* argv[]) {
    else if (msglen == 0) {
       // std::cout << "EOF" << std::endl;
    }
+
+   std::cout << "Task 1 load: " << load1 << "\nTask 2 load: " << load2 << std::endl;
 
    return 0;
 }

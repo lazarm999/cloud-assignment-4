@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 
-const unsigned MAX_PARTITIONS = 4;
+// const unsigned MAX_PARTITIONS = 4;
 const size_t TASK_INFO_SIZE = 128;
 
 union TaskInfo {
@@ -12,6 +12,7 @@ union TaskInfo {
 
 struct Task {
    char task_id;
+   unsigned bucket_cnt;
    TaskInfo task_info;
 };
 
