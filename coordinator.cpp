@@ -21,7 +21,7 @@
 using namespace std::literals;
 
 const int LISTENQ = 128;
-const int TIMEOUT = 600000; // in ms
+const int TIMEOUT = 30000; // in ms
 
 struct client_descriptor {
    Task task;
@@ -272,7 +272,7 @@ int main(int argc, char* argv[]) {
                   auto result = RecvResult(connsd, unassignedTasks, clients);
                   if (result != -1) {
                      remainingTasks--;
-                     std::cout << "TaskId: " << taskId << "\tRemaining: " << remainingTasks << std::endl;
+                     //std::cout << "TaskId: " << taskId << "\tRemaining: " << remainingTasks << std::endl;
                      if (!remainingTasks) break;
                   }
                }
@@ -302,7 +302,7 @@ int main(int argc, char* argv[]) {
    std::vector<DCPair> top25;
    Aggregate(top25, bucketCount);
 
-   std::cout << "Top 25 domains:\n";
+   //std::cout << "Top 25 domains:\n";
    for (auto& pair : top25) {
       std::cout << pair.domain << "\t" << pair.count << "\n";
    }

@@ -9,12 +9,11 @@ fi
 # Monitor the IO read activity of a command
 traceIO() {
   touch "$1"
-  TRACE="$1" "${@:2}"
+  "${@:2}" > "$1" &
 }
 
 # Spawn the coordinator process
-traceIO trace0.txt \
-  cmake-build-debug/coordinator 4242 "$1" &
+cmake-build-debug/coordinator 4242 "$1" > output.txt &
 
 # Spawn some workers
 for i in {1..4}; do
@@ -29,13 +28,22 @@ time wait
 for i in {1..4}; do
   # We need to download 100 files. While we might get some skew, each of our
   # four workers should do about 20 of them. But definitely more than 10.
-  downloads=$(wc -l <"trace$i.txt")
-  if [ "$downloads" -lt 10 ]; then
-    echo "Workload was not distributed evenly!" >&2
+  load=$(grep "Task 1" "trace$i.txt" | cut -d':' -f2)
+  if [ "$load" -lt 10 ]; then
+    echo "Workload for the first was not distributed evenly!" >&2
+    echo "Worker $i was slacking." >&2
+    for j in {0..4}; do rm "trace$j.txt"; done
+    exit 1
+  fi
+  load=$(grep "Task 2" "trace$i.txt" | cut -d':' -f2)
+  if [ "$load" -lt $(($1/8)) ]; then
+    echo "Workload for the second task was not distributed evenly!" >&2
     echo "Worker $i was slacking." >&2
     for j in {0..4}; do rm "trace$j.txt"; done
     exit 1
   fi
 done
 
-for i in {0..4}; do rm "trace$i.txt"; done
+echo "Workload was distributed evenly!"
+
+for i in {1..4}; do rm "trace$i.txt"; done
