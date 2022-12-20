@@ -19,8 +19,6 @@
 #include <vector>
 #include <functional>
 
-// const unsigned BUF_SIZE = 512;
-
 int ConnectToServer(const char* host, const char* port) {
    // returns socket descriptor connected with process at (host, port) or -1 in case of failure
    int rc;
@@ -62,7 +60,6 @@ std::string ExtractDomain(std::string& url) {
 std::vector<DCPair> CountDomains(std::stringstream& csvData) {
 
    std::unordered_map<std::string, unsigned> domainCount;
-   //const std::regex regex("^https?://((:?[a-z0-9](:?[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9])/.*");
    const std::regex regex("://([^/]+)(:?/.*)?$");
 
    for (std::string row; std::getline(csvData, row, '\n');) {
@@ -88,10 +85,6 @@ std::vector<DCPair> CountDomains(std::stringstream& csvData) {
    for (auto& pair : domainCount) {
       dcVec.push_back({pair.first, hash(pair.first), pair.second});
    }
-   // std::stringstream outstr;
-   // for (auto& entry : dcVec) {
-   //    outstr << entry.domain << "," << entry.count << "\n";
-   // }
    return dcVec;
 }
 
@@ -129,7 +122,6 @@ void WriteCounts(std::string& fileno, std::vector<DCPair>& domainCount, unsigned
       if (entry.hash % maxPartitions != static_cast<unsigned long>(hash)) {
          if (hash < maxPartitions) {
             auto blobname = "aggr/bucket" + std::to_string(hash) + "/" + fileno + ".csv";
-            //std::cout << uploadStream.rdbuf() << std::endl;
             UploadStreamToAzure(blobname, uploadStream);
             uploadStream.str("");
             uploadStream.clear();
@@ -140,7 +132,6 @@ void WriteCounts(std::string& fileno, std::vector<DCPair>& domainCount, unsigned
    }
    if (hash < maxPartitions) {
       auto blobname = "aggr/bucket" + std::to_string(hash) + "/" + fileno + ".csv";
-      //std::cout << uploadStream.rdbuf() << std::endl;
       UploadStreamToAzure(blobname, uploadStream);
    }
 }
@@ -230,24 +221,6 @@ void AggregateCountsLocal(int bucketId) {
 /// The worker then contacts the leader process on "localhost" port "4242" for work
 
 int main(int argc, char* argv[]) {
-   // std::string filename = "../data/test.csv";
-   // std::ifstream in(filename);
-   // if (!in) exit(1);
-   // std::stringstream ss;
-   // ss << in.rdbuf();
-   // auto vec = CountDomains(ss);
-   // for (auto& elem : vec) {
-   //    std::cout << elem.count << "\t" << elem.domain << "\n";
-   // }
-   // // if (fileNo.empty()) exit(1);
-   // // WriteCountsLocal(fileNo, vec, MAX_PARTITIONS);
-   // exit(0);
-   // auto url = std::string(argv[1]);
-   // auto domain = ExtractDomain(url);
-   // std::cout << domain << std::endl;
-   // exit(0);
-
-
    if (argc != 3) {
       std::cerr << "Usage: " << argv[0] << " <host> <port>" << std::endl;
       return 1;
@@ -270,7 +243,6 @@ int main(int argc, char* argv[]) {
 
    int clientsd = ConnectToServer(argv[1], argv[2]);
    if (clientsd < 0) {
-      // std::cerr << "Unsuccesful!";
       exit(1); // unsuccessfull
    }
 
@@ -293,27 +265,19 @@ int main(int argc, char* argv[]) {
          AggregateCounts(task.task_info.bucketId);
       }
       else break;
-      // auto downloadedStream = DownloadStreamFromAzure(file);
-      // auto resultstream = CountDomains(downloadedStream);
-      // std::string blobname = "aggr/";
       
       // Send result
       int result = 1; // success
       send(clientsd, &result, sizeof(result), 0);
       if (task.task_id == 1) load1++;
       if (task.task_id == 2) load2++;
-      //std::cout << fileUrl << std::endl;
-      //std::cout << "Process " << pid << std::endl;
    }
 
    if (msglen < 0) { // error occurred
       std::cerr << pid << " recv() error: " << std::strerror(errno) << std::endl;
       exit(1);
    }
-   else if (msglen == 0) {
-      // std::cout << "EOF" << std::endl;
-   }
-
+   
    auto end = std::chrono::steady_clock::now();
    
    std::cout << "Time: " << std::chrono::duration_cast<std::chrono::seconds>(end-start).count() << "s\n";

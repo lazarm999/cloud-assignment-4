@@ -187,28 +187,8 @@ int main(int argc, char* argv[]) {
       return 1;
    }
    auto bucketCount = static_cast<unsigned>(bucketCountL);
-   // std::cout << bucketCount << std::endl;
-   
-   // std::string blobname = "aggr/bucket";
-   // auto& client = *AzureBlobClient::Instance();
-   // auto blobs = client.listBlobs(blobname);
-   // std::cout << blobs.size() << std::endl;
-   // for (auto& blob : blobs) {
-   //    client.deleteBlob(blob);
-   // }
-   // exit(0);
-   
-   // x % 30u != static_cast<unsigned long>(hash)
-   // auto ss = DownloadStreamFromAzure(blobname);
-   // std::cout << ss.rdbuf();
 
    CurlGlobalSetup curlSetup;
-
-   // auto listUrl = std::string("https://db.in.tum.de/teaching/ws2223/clouddataprocessing/data/filelist.csv");//std::string(argv[1]);
-
-   // Download the file list
-   //std::cout << fileList.str();
-   // return 0;
 
    pollfd* psds = new pollfd[LISTENQ + 1];
    int listensd = OpenListenSd(argv[1]);
@@ -223,7 +203,7 @@ int main(int argc, char* argv[]) {
       std::vector<Task> unassignedTasks;
       // Iterate over all files and mark them as unassigned
       if (taskId == 1) {
-         auto fileList = DownloadStreamFromAzure("data/filelist.csv"); // DownloadStreamWithCUrl(listUrl);// 
+         auto fileList = DownloadStreamFromAzure("data/filelist.csv");
          for (std::string url; std::getline(fileList, url, '\n');) {
             Task task;
             task.task_id = 1;
@@ -233,7 +213,6 @@ int main(int argc, char* argv[]) {
             remainingTasks++;
             //if (!--n) break;
          }
-         // std::cout << unassignedTasks.front().task_info.blobname << "\t" << unassignedTasks.back().task_info.blobname << "\t" << remainingTasks << std::endl;
       }
       else {
          for (auto i=0u; i<bucketCount; ++i) {
@@ -258,7 +237,6 @@ int main(int argc, char* argv[]) {
                   sockaddr_storage clientaddr;
                   socklen_t clientlen;    
                   // accept connection with worker
-                  //std::cout << "Here!";
                   int connsd = accept(listensd, (sockaddr*)&clientaddr, &clientlen);
                   // add socket descriptor to polling list
                   AddToPoll(psds, connsd, psdlen, LISTENQ+1);
@@ -272,12 +250,10 @@ int main(int argc, char* argv[]) {
                   auto result = RecvResult(connsd, unassignedTasks, clients);
                   if (result != -1) {
                      remainingTasks--;
-                     //std::cout << "TaskId: " << taskId << "\tRemaining: " << remainingTasks << std::endl;
                      if (!remainingTasks) break;
                   }
                }
                else if ((psds[i].revents & POLLHUP) || std::chrono::duration_cast<std::chrono::milliseconds>(now - clients[connsd].last_seen).count() > TIMEOUT) {
-                  //std::cout << "Here" << (psds[i].revents) << std::endl;
                   auto task = clients[connsd].task;
                   clients.erase(connsd);
                   if (!task.task_id) unassignedTasks.push_back(task);
@@ -287,7 +263,6 @@ int main(int argc, char* argv[]) {
                   continue;
                }
                else if ((psds[i].revents & POLLOUT) && !clients[connsd].task.task_id && !unassignedTasks.empty()) {
-                  // std::cout << "File: " << remainingTasks << ", unassigned len: " << unassignedTasks.size() << std::endl;
                   if (SendTask(connsd, unassignedTasks, clients) == -1) {
                      DelFromPollsds(psds, i, psdlen);
                   }

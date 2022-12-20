@@ -29,5 +29,3 @@ std::stringstream DownloadStreamFromAzure(const std::string& blobname);
 void UploadStreamToAzure(const std::string blobname, std::stringstream& stream);
 
 std::vector<std::string> ListAzureBlobs(std::string& prefix);
-
-void uploadDataToAzure();
