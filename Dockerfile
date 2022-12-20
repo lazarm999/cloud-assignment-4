@@ -10,8 +10,8 @@ ENV CBDP_PORT 4242
 
 FROM base as coordinator
 
-ENV BUCKET_CNT 10
-CMD exec ./coordinator https://db.in.tum.de/teaching/ws2223/clouddataprocessing/data/filelist.csv "$CBDP_PORT" "$BUCKET_CNT"
+ENV BUCKET_CNT 4
+CMD exec ./coordinator "$CBDP_PORT" "$BUCKET_CNT"
 
 FROM base as worker
 

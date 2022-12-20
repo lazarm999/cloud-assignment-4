@@ -48,6 +48,17 @@ int ConnectToServer(const char* host, const char* port) {
    return clientsd;
 }
 
+std::string ExtractDomain(std::string& url) {
+   auto urlPtr = url.data();
+   auto limit = urlPtr + url.size();
+   urlPtr = std::strstr(urlPtr, "://");
+   if (!urlPtr) return url;
+   urlPtr += 3;
+   auto end = urlPtr;
+   for (; end < limit && (*end) != '/'; ++end);
+   return std::string(urlPtr, static_cast<size_t>(end-urlPtr));
+}
+
 std::vector<DCPair> CountDomains(std::stringstream& csvData) {
 
    std::unordered_map<std::string, unsigned> domainCount;
@@ -61,22 +72,13 @@ std::vector<DCPair> CountDomains(std::stringstream& csvData) {
       for (std::string column; std::getline(rowStream, column, '\t'); ++columnIndex) {
          // column 0 is id, 1 is URL
          if (columnIndex == 1) {
-            // Check if URL is "google.ru"
             std::smatch match;
             std::string url(column);
-            auto domain = (std::regex_search(url, match, regex) && match.size() > 1) ? std::move(match[1].str()) : std::move(url);
+            auto domain = (std::regex_search(url, match, regex) && match.size() > 1) ? std::move(match[1].str()) : std::move(url); // = ExtractDomain(column);
             if (domainCount.find(domain) == domainCount.end()) {
                domainCount[domain] = 1;
             }
             else domainCount[domain]++;
-            
-            // if (std::regex_search(url, match, regex) && match.size() > 1) {
-            //    auto domain = std::move(match[1].str());
-            //    if (domainCount.find(domain) == domainCount.end()) {
-            //       domainCount[domain] = 1;
-            //    }
-            //    else domainCount[domain]++;
-            // }
             break;
          }
       }
@@ -240,6 +242,10 @@ int main(int argc, char* argv[]) {
    // // if (fileNo.empty()) exit(1);
    // // WriteCountsLocal(fileNo, vec, MAX_PARTITIONS);
    // exit(0);
+   // auto url = std::string(argv[1]);
+   // auto domain = ExtractDomain(url);
+   // std::cout << domain << std::endl;
+   // exit(0);
 
 
    if (argc != 3) {
@@ -260,6 +266,7 @@ int main(int argc, char* argv[]) {
    Task task;
    int load1 = 0, load2 = 0;
    sleep(1);
+   auto start = std::chrono::steady_clock::now();
 
    int clientsd = ConnectToServer(argv[1], argv[2]);
    if (clientsd < 0) {
@@ -307,6 +314,9 @@ int main(int argc, char* argv[]) {
       // std::cout << "EOF" << std::endl;
    }
 
+   auto end = std::chrono::steady_clock::now();
+   
+   std::cout << "Time: " << std::chrono::duration_cast<std::chrono::seconds>(end-start).count() << "s\n";
    std::cout << "Task 1 load: " << load1 << "\nTask 2 load: " << load2 << std::endl;
 
    return 0;
