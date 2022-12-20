@@ -133,7 +133,7 @@ void AggregateLocal(std::vector<DCPair>& top25, unsigned bucketCnt) {
          auto rowStream = std::stringstream(row);
          std::getline(rowStream, domain, '\t');
          rowStream >> count;
-         top25.push_back({domain, 0ul, count});
+         top25.push_back({domain, count});
       }
       in.close();
    }
@@ -158,7 +158,7 @@ void Aggregate(std::vector<DCPair>& top25, unsigned bucketCount) {
          auto rowStream = std::stringstream(row);
          std::getline(rowStream, domain, '\t');
          rowStream >> count;
-         top25.push_back({domain, 0ul, count});
+         top25.push_back({domain, count});
       }
    }
    std::sort(top25.begin(), top25.end(), [](DCPair a, DCPair b) {

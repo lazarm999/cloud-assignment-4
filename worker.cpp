@@ -60,8 +60,6 @@ std::string ExtractDomain(std::string& url) {
 std::unordered_map<std::string, unsigned> CountDomains(std::stringstream& csvData) {
 
    std::unordered_map<std::string, unsigned> domainCount;
-   //const std::regex regex("^https?://((:?[a-z0-9](:?[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9])/.*");
-   // const std::regex regex("://([^/]+)(:?/.*)?$");
 
    for (std::string row; std::getline(csvData, row, '\n');) {
       auto rowStream = std::stringstream(std::move(row));
@@ -70,9 +68,7 @@ std::unordered_map<std::string, unsigned> CountDomains(std::stringstream& csvDat
       for (std::string column; std::getline(rowStream, column, '\t'); ++columnIndex) {
          // column 0 is id, 1 is URL
          if (columnIndex == 1) {
-            //std::smatch match;
-            //std::string url(column);
-            auto domain = ExtractDomain(column); // (std::regex_search(url, match, regex) && match.size() > 1) ? std::move(match[1].str()) : std::move(url); // = ExtractDomain(column);
+            auto domain = ExtractDomain(column);
             if (domainCount.find(domain) == domainCount.end()) {
                domainCount[domain] = 1;
             }
@@ -85,18 +81,20 @@ std::unordered_map<std::string, unsigned> CountDomains(std::stringstream& csvDat
 }
 
 void WriteCountsLocal(std::string& fileno, std::vector<DCPair>& domainCount, unsigned bucketCnt) {
-   std::unordered_map<unsigned,std::ofstream> outstreams;
+   auto outstreams = new std::ofstream[bucketCnt];
+   std::hash<std::string> hashFunc {};
    for (auto& entry : domainCount) {
-      auto hash = static_cast<unsigned>(entry.hash % bucketCnt);
-      if (outstreams.find(hash) == outstreams.end()) {
+      auto hash = hashFunc(entry.domain) % bucketCnt;
+      auto& outstream = outstreams[hash];
+      if (!outstream.is_open()) {
          auto filename = "./data/aggr/bucket" + std::to_string(hash) + "." + fileno + ".csv";
-         outstreams[hash] = std::ofstream(filename);
-         if (!outstreams[hash]) {std::cout << "File failed!";}
+         outstream.open(filename);
+         if (!outstream) {std::cout << "File failed!";}
       }
-      outstreams[hash] << entry.domain << "\t" << entry.count << "\n";
+      outstream << entry.domain << "\t" << entry.count << "\n";
    }
-   for (auto& pair : outstreams) {
-      pair.second.close();
+   for (auto i=0u; i<bucketCnt; ++i) {
+      outstreams[i].close();
    }
 }
 
@@ -150,7 +148,7 @@ void AggregateCounts(int bucketId) {
    }
    std::vector<DCPair> countAsVector;
    for (auto& pair : counts) {
-      countAsVector.push_back({pair.first, 0, pair.second});
+      countAsVector.push_back({pair.first, pair.second});
    }
    std::sort(countAsVector.begin(), countAsVector.end(), [](const DCPair& a, const DCPair& b) {
       return a.count > b.count;
@@ -188,7 +186,7 @@ void AggregateCountsLocal(int bucketId) {
    }
    std::vector<DCPair> countAsVector;
    for (auto& pair : counts) {
-      countAsVector.push_back({pair.first, 0, pair.second});
+      countAsVector.push_back({pair.first, pair.second});
    }
    std::sort(countAsVector.begin(), countAsVector.end(), [](const DCPair& a, const DCPair& b) {
       return a.count > b.count;

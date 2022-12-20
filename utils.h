@@ -18,7 +18,6 @@ struct Task {
 
 struct DCPair {
    std::string domain;
-   std::size_t hash;
    unsigned count;
 };
 
